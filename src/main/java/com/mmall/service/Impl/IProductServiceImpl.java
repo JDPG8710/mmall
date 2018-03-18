@@ -1,14 +1,17 @@
 package com.mmall.service.Impl;
 
+import com.github.pagehelper.Page;
 import com.github.pagehelper.PageHelper;
 import com.github.pagehelper.PageInfo;
 import com.google.common.collect.Lists;
+import com.mmall.common.Constant;
 import com.mmall.common.ResponseCode;
 import com.mmall.common.ServerResponse;
 import com.mmall.dao.CategoryMapper;
 import com.mmall.dao.ProductMapper;
 import com.mmall.pojo.Category;
 import com.mmall.pojo.Product;
+import com.mmall.service.ICategoryService;
 import com.mmall.service.IProductService;
 import com.mmall.util.DateTimeUtil;
 import com.mmall.util.PropertiesUtil;
@@ -18,6 +21,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -27,10 +31,13 @@ import java.util.List;
 public class IProductServiceImpl implements IProductService {
 
     @Autowired
-    private ProductMapper productMapper;
+    private ProductMapper iProductMapper;
 
     @Autowired
-    private CategoryMapper categoryMapper;
+    private CategoryMapper iCategoryMapper;
+
+    @Autowired
+    private ICategoryService iCategoryService;
 
     public ServerResponse saveOrUpdateProdcut(Product product) {
         if (product != null) {
@@ -41,13 +48,13 @@ public class IProductServiceImpl implements IProductService {
                 }
             }
             if (product.getId() != null) {
-                int rowCount = productMapper.updateByPrimaryKey(product);
+                int rowCount = iProductMapper.updateByPrimaryKey(product);
                 if (rowCount > 0) {
                     return ServerResponse.createBySuccess("Update product success");
                 }
                 return ServerResponse.createBySuccess("Update product failed");
             } else {
-                int rowCount = productMapper.insert(product);
+                int rowCount = iProductMapper.insert(product);
                 if (rowCount > 0) {
                     return ServerResponse.createBySuccess("Insert product success");
                 }
@@ -64,7 +71,7 @@ public class IProductServiceImpl implements IProductService {
         Product product = new Product();
         product.setId(productId);
         product.setStatus(status);
-        int rowCount = productMapper.updateByPrimaryKeySelective(product);
+        int rowCount = iProductMapper.updateByPrimaryKeySelective(product);
         if (rowCount > 0) {
             return ServerResponse.createBySuccess("Update the product Sale Status successfully");
         }
@@ -75,7 +82,7 @@ public class IProductServiceImpl implements IProductService {
         if (productId == null) {
             return ServerResponse.createByErrorCodeMessage(ResponseCode.ILLEGAL_AGUMENT.getCode(), ResponseCode.ILLEGAL_AGUMENT.getDesc());
         }
-        Product product = productMapper.selectByPrimaryKey(productId);
+        Product product = iProductMapper.selectByPrimaryKey(productId);
         if (product == null) {
             return ServerResponse.createByErrorMessage("Product is deleted or not existed.");
         }
@@ -100,7 +107,7 @@ public class IProductServiceImpl implements IProductService {
         //imageHost
         productDetailVo .setImageHost(PropertiesUtil.getProperty("ftp.server.http.prefix","http://img.dingmall.com/"));
         //parentCategoryId
-        Category category = categoryMapper.selectByPrimaryKey(product.getCategoryId());
+        Category category = iCategoryMapper.selectByPrimaryKey(product.getCategoryId());
         if(category == null){
             productDetailVo.setParentCatogryId(0) ;//root id
         }else{
@@ -117,7 +124,7 @@ public class IProductServiceImpl implements IProductService {
 
     public ServerResponse getProductList(int pageNum,int pageSize){
         PageHelper.startPage(pageNum,pageSize);
-        List<Product> productList = productMapper.selectList() ;
+        List<Product> productList = iProductMapper.selectList() ;
 
         List<ProductListVo> productListVosList = Lists.newArrayList();
         for(Product productItem : productList){
@@ -147,7 +154,7 @@ public class IProductServiceImpl implements IProductService {
                 if(StringUtils.isNotBlank(productName)){
                     productName = new StringBuilder().append("%").append(productName).append("%").toString();
                 }
-        List<Product> productList = productMapper.selectByNameAndProductId(productName,productId);
+        List<Product> productList = iProductMapper.selectByNameAndProductId(productName,productId);
         List<ProductListVo> productListVosList = Lists.newArrayList();
         for(Product productItem : productList){
             ProductListVo productListVo = assembleProductListVo(productItem) ;
@@ -157,4 +164,64 @@ public class IProductServiceImpl implements IProductService {
         pageResult.setList(productListVosList);
         return ServerResponse.createBySuccess(pageResult);
     }
+
+    public ServerResponse<ProductDetailVo> getProductDetail(Integer productId){
+        if (productId == null) {
+            return ServerResponse.createByErrorCodeMessage(ResponseCode.ILLEGAL_AGUMENT.getCode(), ResponseCode.ILLEGAL_AGUMENT.getDesc());
+        }
+        Product product = iProductMapper.selectByPrimaryKey(productId);
+        if (product == null) {
+            return ServerResponse.createByErrorMessage("Product is deleted or not existed.");
+        }
+        if(product.getStatus()!= Constant.ProductStatusEnum.ON_SALE.getCode()){
+            return ServerResponse.createByErrorMessage("Product is deleted or not existed.");
+        }
+        ProductDetailVo productDetailVo = assembleProductDetailVo(product);
+        return ServerResponse.createBySuccess(productDetailVo);
+    }
+
+    public ServerResponse<PageInfo> getProductByKeywordCategory(String keyword,Integer categoryId,int pageNum,int pageSize,String orderBy)
+    {
+        if(StringUtils.isBlank(keyword) && categoryId==null){
+            return ServerResponse.createByErrorCodeMessage(ResponseCode.ILLEGAL_AGUMENT.getCode(),ResponseCode.ILLEGAL_AGUMENT .getDesc()) ;
+        }
+        List<Integer> categoryIdList = new ArrayList<Integer>();
+
+        if(categoryId!=null){
+            Category category = iCategoryMapper .selectByPrimaryKey(categoryId);
+            if(category == null && StringUtils.isBlank(keyword)){
+                PageHelper.startPage(pageNum, pageSize);
+                List<ProductListVo> productListVoList =Lists.newArrayList();
+                PageInfo pageInfo = new PageInfo(productListVoList);
+                return ServerResponse.createBySuccess(pageInfo);
+            }
+            categoryIdList = iCategoryService.selectCategoryAndChildrenById(category.getId()).getData();
+        }
+        if(StringUtils.isNotBlank(keyword)){
+            keyword = new StringBuilder().append("%").append(keyword).append("%").toString();
+        }
+
+        PageHelper.startPage(pageNum, pageSize);
+
+        if(StringUtils.isNotBlank(orderBy)){
+            if(Constant.ProductListOrder.PRICE_ASC_DESC.contains(orderBy)){
+                String[] orderByArray = orderBy.split("_");
+                PageHelper.orderBy(orderByArray[0]+" "+orderByArray [1]);
+            }
+        }
+        List<Product> productList =iProductMapper.selectByNameAndCategoryIds(StringUtils.isBlank(keyword)?null:keyword
+                ,categoryIdList.size()==0?null:categoryIdList);
+
+        List<ProductListVo > productListVoList =Lists.newArrayList();
+        for(Product product:productList){
+            ProductListVo productListVo = assembleProductListVo(product);
+            productListVoList .add((productListVo));
+        }
+        PageInfo pageInfo= new PageInfo(productList);
+        pageInfo.setList(productListVoList);
+
+        return ServerResponse.createBySuccess(pageInfo) ;
+
+    }
+
 }

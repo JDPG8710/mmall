@@ -22,8 +22,8 @@ public class IFileServiceImpl implements IFileService {
 
     public String upload(MultipartFile file, String path) {
         String fileName = file.getOriginalFilename();
-        String fileExtensioName = fileName.substring(fileName.lastIndexOf(".") + 1);
-        String uploadFileName = UUID.randomUUID().toString() + "." + fileExtensioName;
+        String fileExtensionName = fileName.substring(fileName.lastIndexOf(".") + 1);
+        String uploadFileName = UUID.randomUUID().toString() + "." + fileExtensionName;
         logger.info("Begin to upload the file {}, file path is {},new filename is {}", fileName, path, uploadFileName);
 
         File fileDir = new File(path);
